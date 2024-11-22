@@ -10,17 +10,20 @@ def get_relative_url(url):
     except Exception:
         return None  # Devuelve None si hay algún error
 
-# Función para encontrar la URL más parecida
+# Función para encontrar la URL más parecida o redirigir a la home
 def match_urls(old_url, new_urls):
     try:
+        # Filtrar valores nulos y convertir a cadenas
+        cleaned_urls = [str(url) for url in new_urls if pd.notnull(url)]
+        
         # Busca la URL más similar utilizando difflib
-        match = get_close_matches(old_url, new_urls, n=1, cutoff=0.6)
-        return match[0] if match else "Sin coincidencias"
+        match = get_close_matches(old_url, cleaned_urls, n=1, cutoff=0.4)  # Ajustamos el cutoff para ser más permisivo
+        return match[0] if match else "/"
     except Exception:
-        return "Error en la coincidencia"
+        return "/"
 
 # Interfaz de la aplicación
-st.title("Herramienta de Redirecciones Automáticas (Sin OpenAI)")
+st.title("Herramienta de Redirecciones Automáticas (Ajustada)")
 st.write("Sube un archivo Excel con columnas 'Old URLs' y 'New URLs'. La herramienta generará un archivo con las redirecciones.")
 
 # Subir archivo Excel
