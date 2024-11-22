@@ -22,26 +22,34 @@ st.write("Sube un archivo Excel con columnas 'Old URLs' y 'New URLs'. La herrami
 uploaded_file = st.file_uploader("Sube tu archivo Excel", type="xlsx")
 
 if uploaded_file is not None:
-    df = pd.read_excel(uploaded_file)
-    
-    # Verificar que las columnas requeridas existen
-    if "Old URLs" in df.columns and "New URLs" in df.columns:
-        st.write("Procesando las redirecciones...")
+    try:
+        # Leer el archivo como Excel
+        df = pd.read_excel(uploaded_file)
         
-        # Generar redirecciones
-        df["Redirección"] = df.apply(
-            lambda row: match_urls(row["Old URLs"], df["New URLs"].tolist()), axis=1
-        )
-        
-        st.write("Archivo procesado. Descárgalo a continuación.")
-        st.dataframe(df)  # Muestra el resultado en la web
+        # Verificar si las columnas necesarias están presentes
+        if "Old URLs" not in df.columns or "New URLs" not in df.columns:
+            st.error("El archivo debe contener columnas llamadas 'Old URLs' y 'New URLs'.")
+        else:
+            # Filtrar filas donde ambas columnas tengan datos
+            df = df.dropna(subset=["Old URLs", "New URLs"])
+            
+            # Procesar las redirecciones
+            st.write("Procesando las redirecciones...")
+            df["Redirección"] = df.apply(
+                lambda row: match_urls(row["Old URLs"], df["New URLs"].tolist()), axis=1
+            )
+            
+            # Mostrar el resultado
+            st.dataframe(df)
+            
+            # Permitir descarga del archivo procesado
+            output = df.to_excel(index=False)
+            st.download_button(
+                label="Descargar Archivo con Redirecciones",
+                data=output,
+                file_name="Redirecciones.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+    except Exception as e:
+        st.error(f"Ocurrió un error al procesar el archivo: {str(e)}") 
 
-        # Permitir descarga del archivo
-        st.download_button(
-            "Descargar Archivo con Redirecciones",
-            data=df.to_excel(index=False),
-            file_name="Redirecciones.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-    else:
-        st.error("El archivo debe contener las columnas 'Old URLs' y 'New URLs'.")
