@@ -5,21 +5,13 @@ from difflib import SequenceMatcher
 from io import BytesIO
 import re
 
-# Función para validar el formato de una URL
-def validate_url_format(url):
-    try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except ValueError:
-        return False
-
 # Función para obtener las URLs relativas y normalizarlas
 def get_relative_url(url):
     try:
         path = urlparse(str(url)).path.lower().rstrip('/')
-        return path
+        return path if path else "INVALID_URL"
     except Exception:
-        return None
+        return "INVALID_URL"
 
 # Función para extraer tokens de una URL
 def extract_tokens(url):
@@ -66,58 +58,29 @@ if uploaded_file is not None:
         # Asegurarse de que todas las celdas sean texto
         df = df.astype(str)
 
-        # Verificar si las columnas necesarias están presentes
-        if "Old URLs" not in df.columns or "New URLs" not in df.columns:
-            st.error("El archivo debe contener columnas llamadas 'Old URLs' y 'New URLs'.")
-        else:
-            # Validar formato de las URLs
-            df["Valid Old URL"] = df["Old URLs"].apply(validate_url_format)
-            df["Valid New URL"] = df["New URLs"].apply(validate_url_format)
+        # Normalizar las URLs
+        df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
+        df["New URLs"] = df["New URLs"].apply(get_relative_url)
 
-            # Filtrar URLs no válidas
-            invalid_urls = df[~df["Valid Old URL"] | ~df["Valid New URL"]]
-            if not invalid_urls.empty:
-                st.warning("Algunas URLs no tienen un formato válido y serán omitidas.")
-                st.dataframe(invalid_urls)
+        # Procesar las redirecciones
+        df["Redirección"] = df["Old URLs"].apply(
+            lambda old_url: match_urls_with_hierarchy(old_url, df["New URLs"].tolist())
+        )
 
-            df = df[df["Valid Old URL"] & df["Valid New URL"]]
+        # Mostrar el resultado
+        st.dataframe(df)
 
-            # Convertir las URLs a relativas y normalizarlas
-            df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
-            df["New URLs"] = df["New URLs"].apply(get_relative_url)
-
-            # Procesar las redirecciones utilizando la función mejorada
-            st.write("Procesando las redirecciones...")
-            df["Redirección"] = df["Old URLs"].apply(
-                lambda old_url: match_urls_with_hierarchy(old_url, df["New URLs"].tolist())
-            )
-
-            # Estadísticas
-            total_urls = len(df)
-            no_redirection_count = len(df[df["Redirección"] == "NO_REDIRECTION"])
-            st.write(f"Total de URLs procesadas: {total_urls}")
-            st.write(f"Redirecciones exitosas: {total_urls - no_redirection_count}")
-            st.write(f"URLs sin redirección asignada: {no_redirection_count}")
-
-            # Mostrar URLs sin redirección asignada
-            if no_redirection_count > 0:
-                st.warning("Algunas URLs no tienen redirección asignada. Revísalas a continuación.")
-                st.dataframe(df[df["Redirección"] == "NO_REDIRECTION"])
-
-            # Mostrar el resultado
-            st.dataframe(df)
-
-            # Permitir descarga del archivo procesado
-            output = BytesIO()
-            writer = pd.ExcelWriter(output, engine='xlsxwriter')
-            df.to_excel(writer, index=False, sheet_name='Redirecciones')
-            writer.close()
-            processed_data = output.getvalue()
-            st.download_button(
-                label="Descargar Archivo con Redirecciones",
-                data=processed_data,
-                file_name="Redirecciones_Relativas.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+        # Permitir descarga del archivo procesado
+        output = BytesIO()
+        writer = pd.ExcelWriter(output, engine='xlsxwriter')
+        df.to_excel(writer, index=False, sheet_name='Redirecciones')
+        writer.close()
+        processed_data = output.getvalue()
+        st.download_button(
+            label="Descargar Archivo con Redirecciones",
+            data=processed_data,
+            file_name="Redirecciones_Relativas.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
     except Exception as e:
         st.error(f"Ocurrió un error al procesar el archivo: {str(e)}")
