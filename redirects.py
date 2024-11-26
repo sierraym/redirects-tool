@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from urllib.parse import urlparse
 from difflib import get_close_matches
-from io import BytesIO
 
 # Función para obtener las URLs relativas
 def get_relative_url(url):
@@ -39,30 +38,24 @@ if uploaded_file is not None:
         if "Old URLs" not in df.columns or "New URLs" not in df.columns:
             st.error("El archivo debe contener columnas llamadas 'Old URLs' y 'New URLs'.")
         else:
+            # Filtrar filas donde 'Old URLs' tenga datos
+            df = df.dropna(subset=["Old URLs"])
+            
             # Convertir las URLs a relativas
             df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
             df["New URLs"] = df["New URLs"].apply(get_relative_url)
             
-            # Obtener listas de URLs viejas y nuevas
-            old_urls = df["Old URLs"].dropna().tolist()  # Asegurar que no haya nulos
-            new_urls = df["New URLs"].dropna().tolist()
-            
-            # Crear un DataFrame con las redirecciones
-            redirect_results = []
-            for old_url in old_urls:
-                matched_url = match_urls(old_url, new_urls)
-                redirect_results.append({"Old URL": old_url, "Redirect To": matched_url})
-            
-            # Convertir a DataFrame final
-            redirect_df = pd.DataFrame(redirect_results)
+            # Procesar las redirecciones utilizando difflib
+            st.write("Procesando las redirecciones...")
+            df["Redirección"] = df["Old URLs"].apply(
+                lambda old_url: match_urls(old_url, df["New URLs"].tolist())
+            )
             
             # Mostrar el resultado
-            st.dataframe(redirect_df)
+            st.dataframe(df)
             
             # Permitir descarga del archivo procesado
-            output = BytesIO()
-            redirect_df.to_excel(output, index=False, engine='openpyxl')
-            output.seek(0)
+            output = df.to_excel(index=False)
             st.download_button(
                 label="Descargar Archivo con Redirecciones",
                 data=output,
