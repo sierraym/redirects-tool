@@ -32,27 +32,55 @@ def detect_language(url):
     else:
         return '/'  # Default to main home
 
-# Función para encontrar la URL más parecida con jerarquía
-def match_urls_with_hierarchy(old_url, new_urls):
+# Función mejorada para encontrar la URL más parecida con jerarquía y tokens específicos
+def match_urls_with_hierarchy_and_tokens(old_url, new_urls):
     try:
         old_tokens = extract_tokens(old_url)
         hierarchy_score = []
 
         for new_url in new_urls:
             new_tokens = extract_tokens(new_url)
-            shared_hierarchy = sum(1 for a, b in zip(old_tokens, new_tokens) if a == b)
+            # Verificar coincidencias exactas de tokens
             shared_tokens = len(set(old_tokens).intersection(new_tokens))
+            shared_hierarchy = sum(1 for a, b in zip(old_tokens, new_tokens) if a == b)
             similarity = SequenceMatcher(None, old_url, new_url).ratio()
             hierarchy_score.append((new_url, shared_hierarchy, shared_tokens, similarity))
 
         # Ordenar por jerarquía > tokens compartidos > similitud
         sorted_urls = sorted(hierarchy_score, key=lambda x: (x[1], x[2], x[3]), reverse=True)
-        if sorted_urls and sorted_urls[0][3] > 0.5:  # Similitud mínima requerida
+
+        # Si hay coincidencias significativas, devolver la mejor
+        if sorted_urls and (sorted_urls[0][1] > 0 or sorted_urls[0][2] > 0):
             return sorted_urls[0][0]
         else:
             return None  # No significant match
     except Exception:
         return None
+
+# Procesar las redirecciones con un fallback inteligente
+def process_redirection(old_url):
+    # Intentar encontrar la mejor coincidencia
+    best_match = match_urls_with_hierarchy_and_tokens(old_url, df["New URLs"].tolist())
+    if best_match:
+        return best_match
+    else:
+        # Fallback: buscar una URL dentro del idioma con al menos un token compartido
+        language = detect_language(old_url)
+        fallback_matches = [
+            new_url for new_url in df["New URLs"]
+            if language in new_url and any(token in new_url for token in extract_tokens(old_url))
+        ]
+        if fallback_matches:
+            # Si hay múltiples opciones, usar la similitud para elegir la mejor
+            fallback_matches = sorted(
+                fallback_matches,
+                key=lambda x: SequenceMatcher(None, old_url, x).ratio(),
+                reverse=True
+            )
+            return fallback_matches[0]
+        else:
+            # Si no hay ninguna coincidencia dentro del idioma, redirigir a la home del idioma
+            return language
 
 # Interfaz de la aplicación
 st.title("Herramienta de Redirecciones Automáticas")
@@ -74,14 +102,6 @@ if uploaded_file is not None:
         df["New URLs"] = df["New URLs"].apply(get_relative_url)
 
         # Procesar las redirecciones
-        def process_redirection(old_url):
-            best_match = match_urls_with_hierarchy(old_url, df["New URLs"].tolist())
-            if best_match:
-                return best_match
-            else:
-                # Si no hay coincidencia, asignar según el idioma detectado
-                return detect_language(old_url)
-
         df["Redirección"] = df["Old URLs"].apply(process_redirection)
 
         # Mostrar el resultado
