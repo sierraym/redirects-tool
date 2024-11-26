@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import urlparse
-import Levenshtein  # Asegúrate de que 'python-Levenshtein' está en requirements.txt
+from difflib import SequenceMatcher
 from io import BytesIO
 
 # Función para obtener las URLs relativas y normalizarlas
@@ -12,20 +12,20 @@ def get_relative_url(url):
     except Exception:
         return None
 
-# Función para encontrar la URL más parecida utilizando la distancia de Levenshtein
+# Función para encontrar la URL más parecida utilizando SequenceMatcher de difflib
 def match_urls(old_url, new_urls):
     try:
         cleaned_urls = [str(url).lower().rstrip('/') for url in new_urls if pd.notnull(url)]
         if not cleaned_urls:
             return "/"
 
-        # Calcular la distancia de Levenshtein entre old_url y cada new_url
-        distances = [(new_url, Levenshtein.distance(old_url, new_url)) for new_url in cleaned_urls]
+        # Calcular la similitud entre old_url y cada new_url
+        similarities = [(new_url, SequenceMatcher(None, old_url, new_url).ratio()) for new_url in cleaned_urls]
 
-        # Encontrar la new_url con la menor distancia
-        closest_match = min(distances, key=lambda x: x[1])
+        # Encontrar la new_url con la mayor similitud
+        best_match = max(similarities, key=lambda x: x[1])
 
-        return closest_match[0]
+        return best_match[0]
     except Exception:
         return "/"
 
@@ -52,7 +52,7 @@ if uploaded_file is not None:
             df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
             df["New URLs"] = df["New URLs"].apply(get_relative_url)
 
-            # Procesar las redirecciones utilizando la distancia de Levenshtein
+            # Procesar las redirecciones utilizando difflib SequenceMatcher
             st.write("Procesando las redirecciones...")
             df["Redirección"] = df["Old URLs"].apply(
                 lambda old_url: match_urls(old_url, df["New URLs"].tolist())
