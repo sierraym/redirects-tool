@@ -5,6 +5,14 @@ from difflib import SequenceMatcher
 from io import BytesIO
 import re
 
+# Función para validar el formato de una URL
+def validate_url_format(url):
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
+
 # Función para obtener las URLs relativas y normalizarlas
 def get_relative_url(url):
     try:
@@ -17,51 +25,31 @@ def get_relative_url(url):
 def extract_tokens(url):
     if not url:
         return []
-    # Eliminar la extensión y dividir por '/', '-', '_'
     url = re.sub(r'\.\w+$', '', url)  # Eliminar la extensión (.html, .php, etc.)
     tokens = re.split(r'[\/\-_]', url)
-    tokens = [token for token in tokens if token]  # Eliminar tokens vacíos
-    return tokens
+    return [token for token in tokens if token]  # Eliminar tokens vacíos
 
-# Función mejorada para encontrar la URL más parecida
-def match_urls_improved(old_url, new_urls):
+# Función para encontrar la URL más parecida con jerarquía
+def match_urls_with_hierarchy(old_url, new_urls):
     try:
-        cleaned_new_urls = [str(url).lower().rstrip('/') for url in new_urls if pd.notnull(url)]
-        if not cleaned_new_urls:
-            return "/"
+        old_tokens = extract_tokens(old_url)
+        hierarchy_score = []
 
-        # Extraer tokens de la old_url
-        old_tokens = set(extract_tokens(old_url))
+        for new_url in new_urls:
+            new_tokens = extract_tokens(new_url)
+            shared_hierarchy = sum(1 for a, b in zip(old_tokens, new_tokens) if a == b)
+            shared_tokens = len(set(old_tokens).intersection(new_tokens))
+            similarity = SequenceMatcher(None, old_url, new_url).ratio()
+            hierarchy_score.append((new_url, shared_hierarchy, shared_tokens, similarity))
 
-        # Crear una lista con la cantidad de tokens compartidos
-        matches = []
-        for new_url in cleaned_new_urls:
-            new_tokens = set(extract_tokens(new_url))
-            shared_tokens = old_tokens.intersection(new_tokens)
-            matches.append((new_url, len(shared_tokens)))
-
-        # Filtrar las URLs que comparten al menos un token
-        token_matches = [match for match in matches if match[1] > 0]
-
-        if token_matches:
-            # Ordenar por la cantidad de tokens compartidos y luego por similitud
-            token_matches_sorted = sorted(token_matches, key=lambda x: x[1], reverse=True)
-            top_matches = [match[0] for match in token_matches_sorted if match[1] == token_matches_sorted[0][1]]
-            
-            # Si hay múltiples top matches, usar SequenceMatcher para elegir el mejor
-            if len(top_matches) > 1:
-                similarities = [(url, SequenceMatcher(None, old_url, url).ratio()) for url in top_matches]
-                best_match = max(similarities, key=lambda x: x[1])
-                return best_match[0]
-            else:
-                return token_matches_sorted[0][0]
+        # Ordenar por jerarquía > tokens compartidos > similitud
+        sorted_urls = sorted(hierarchy_score, key=lambda x: (x[1], x[2], x[3]), reverse=True)
+        if sorted_urls and sorted_urls[0][3] > 0.5:  # Similitud mínima requerida
+            return sorted_urls[0][0]
         else:
-            # Si no hay coincidencias de tokens, usar similitud general
-            similarities = [(new_url, SequenceMatcher(None, old_url, new_url).ratio()) for new_url in cleaned_new_urls]
-            best_match = max(similarities, key=lambda x: x[1])
-            return best_match[0]
+            return "NO_REDIRECTION"
     except Exception:
-        return "/"
+        return "NO_REDIRECTION"
 
 # Interfaz de la aplicación
 st.title("Herramienta de Redirecciones Automáticas Mejorada")
@@ -79,8 +67,17 @@ if uploaded_file is not None:
         if "Old URLs" not in df.columns or "New URLs" not in df.columns:
             st.error("El archivo debe contener columnas llamadas 'Old URLs' y 'New URLs'.")
         else:
-            # Filtrar filas donde 'Old URLs' tenga datos
-            df = df.dropna(subset=["Old URLs"])
+            # Validar formato de las URLs
+            df["Valid Old URL"] = df["Old URLs"].apply(validate_url_format)
+            df["Valid New URL"] = df["New URLs"].apply(validate_url_format)
+
+            # Filtrar URLs no válidas
+            invalid_urls = df[~df["Valid Old URL"] | ~df["Valid New URL"]]
+            if not invalid_urls.empty:
+                st.warning("Algunas URLs no tienen un formato válido y serán omitidas.")
+                st.dataframe(invalid_urls)
+
+            df = df[df["Valid Old URL"] & df["Valid New URL"]]
 
             # Convertir las URLs a relativas y normalizarlas
             df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
@@ -89,8 +86,20 @@ if uploaded_file is not None:
             # Procesar las redirecciones utilizando la función mejorada
             st.write("Procesando las redirecciones...")
             df["Redirección"] = df["Old URLs"].apply(
-                lambda old_url: match_urls_improved(old_url, df["New URLs"].tolist())
+                lambda old_url: match_urls_with_hierarchy(old_url, df["New URLs"].tolist())
             )
+
+            # Estadísticas
+            total_urls = len(df)
+            no_redirection_count = len(df[df["Redirección"] == "NO_REDIRECTION"])
+            st.write(f"Total de URLs procesadas: {total_urls}")
+            st.write(f"Redirecciones exitosas: {total_urls - no_redirection_count}")
+            st.write(f"URLs sin redirección asignada: {no_redirection_count}")
+
+            # Mostrar URLs sin redirección asignada
+            if no_redirection_count > 0:
+                st.warning("Algunas URLs no tienen redirección asignada. Revísalas a continuación.")
+                st.dataframe(df[df["Redirección"] == "NO_REDIRECTION"])
 
             # Mostrar el resultado
             st.dataframe(df)
