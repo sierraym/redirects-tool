@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from urllib.parse import urlparse
 from difflib import get_close_matches
+from io import BytesIO  # Import necesario para manejar archivos en memoria
 
 # Función para obtener las URLs relativas
 def get_relative_url(url):
@@ -47,4 +48,22 @@ if uploaded_file is not None:
             
             # Procesar las redirecciones utilizando difflib
             st.write("Procesando las redirecciones...")
-            df["Red
+            df["Redirección"] = df["Old URLs"].apply(
+                lambda old_url: match_urls(old_url, df["New URLs"].tolist())
+            )
+            
+            # Mostrar el resultado
+            st.dataframe(df)
+            
+            # Permitir descarga del archivo procesado
+            output = BytesIO()
+            df.to_excel(output, index=False, engine='openpyxl')
+            output.seek(0)  # Mover el cursor al inicio del archivo
+            st.download_button(
+                label="Descargar Archivo con Redirecciones",
+                data=output,
+                file_name="Redirecciones_Relativas.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+    except Exception as e:
+        st.error(f"Ocurrió un error al procesar el archivo: {str(e)}")
