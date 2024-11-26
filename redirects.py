@@ -1,33 +1,31 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import urlparse
-# Importamos Levenshtein
-import Levenshtein
+from difflib import SequenceMatcher
+from io import BytesIO
 
-# Función para obtener las URLs relativas
+# Función para obtener las URLs relativas y normalizarlas
 def get_relative_url(url):
     try:
-        return urlparse(url).path  # Extrae solo la parte relativa de la URL (/ruta/relativa)
+        path = urlparse(url).path.lower().rstrip('/')
+        return path
     except Exception:
-        return None  # Devuelve None si hay algún error
+        return None
 
-# Función para encontrar la URL más parecida utilizando la distancia de Levenshtein
+# Función para encontrar la URL más parecida utilizando SequenceMatcher
 def match_urls(old_url, new_urls):
     try:
-        # Filtrar valores nulos y convertir a cadenas
-        cleaned_urls = [str(url) for url in new_urls if pd.notnull(url)]
-        
-        # Si no hay URLs nuevas, devolver "/"
+        cleaned_urls = [str(url).lower().rstrip('/') for url in new_urls if pd.notnull(url)]
         if not cleaned_urls:
             return "/"
-        
-        # Calcular la distancia de Levenshtein entre la old_url y cada new_url
-        distances = [(new_url, Levenshtein.distance(old_url, new_url)) for new_url in cleaned_urls]
-        
-        # Encontrar la new_url con la menor distancia
-        closest_match = min(distances, key=lambda x: x[1])
-        
-        return closest_match[0]
+
+        # Calcular la similitud entre old_url y cada new_url
+        similarities = [(new_url, SequenceMatcher(None, old_url, new_url).ratio()) for new_url in cleaned_urls]
+
+        # Encontrar la new_url con la mayor similitud
+        best_match = max(similarities, key=lambda x: x[1])
+
+        return best_match[0]
     except Exception:
         return "/"
 
@@ -42,33 +40,32 @@ if uploaded_file is not None:
     try:
         # Leer el archivo como Excel
         df = pd.read_excel(uploaded_file)
-        
+
         # Verificar si las columnas necesarias están presentes
         if "Old URLs" not in df.columns or "New URLs" not in df.columns:
             st.error("El archivo debe contener columnas llamadas 'Old URLs' y 'New URLs'.")
         else:
             # Filtrar filas donde 'Old URLs' tenga datos
             df = df.dropna(subset=["Old URLs"])
-            
-            # Convertir las URLs a relativas
+
+            # Convertir las URLs a relativas y normalizarlas
             df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
             df["New URLs"] = df["New URLs"].apply(get_relative_url)
-            
-            # Procesar las redirecciones utilizando la distancia de Levenshtein
+
+            # Procesar las redirecciones
             st.write("Procesando las redirecciones...")
             df["Redirección"] = df["Old URLs"].apply(
                 lambda old_url: match_urls(old_url, df["New URLs"].tolist())
             )
-            
+
             # Mostrar el resultado
             st.dataframe(df)
-            
+
             # Permitir descarga del archivo procesado
-            from io import BytesIO
             output = BytesIO()
             writer = pd.ExcelWriter(output, engine='xlsxwriter')
             df.to_excel(writer, index=False, sheet_name='Redirecciones')
-            writer.save()
+            writer.close()
             processed_data = output.getvalue()
             st.download_button(
                 label="Descargar Archivo con Redirecciones",
