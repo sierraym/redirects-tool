@@ -16,7 +16,7 @@ def validate_url_format(url):
 # Función para obtener las URLs relativas y normalizarlas
 def get_relative_url(url):
     try:
-        path = urlparse(url).path.lower().rstrip('/')
+        path = urlparse(str(url)).path.lower().rstrip('/')
         return path
     except Exception:
         return None
@@ -52,7 +52,7 @@ def match_urls_with_hierarchy(old_url, new_urls):
         return "NO_REDIRECTION"
 
 # Interfaz de la aplicación
-st.title("Herramienta de Redirecciones Automáticas Mejorada")
+st.title("Herramienta de Redirecciones Automáticas")
 st.write("Sube un archivo Excel con columnas 'Old URLs' y 'New URLs'. La herramienta generará un archivo con las redirecciones.")
 
 # Subir archivo Excel
@@ -62,6 +62,9 @@ if uploaded_file is not None:
     try:
         # Leer el archivo como Excel
         df = pd.read_excel(uploaded_file)
+
+        # Asegurarse de que todas las celdas sean texto
+        df = df.astype(str)
 
         # Verificar si las columnas necesarias están presentes
         if "Old URLs" not in df.columns or "New URLs" not in df.columns:
