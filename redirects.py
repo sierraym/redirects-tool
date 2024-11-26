@@ -21,6 +21,17 @@ def extract_tokens(url):
     tokens = re.split(r'[\/\-_]', url)
     return [token for token in tokens if token]  # Eliminar tokens vacíos
 
+# Detectar idioma en la URL antigua
+def detect_language(url):
+    if '/en/' in url:
+        return '/en/'
+    elif '/de/' in url:
+        return '/de/'
+    elif '/fr/' in url:
+        return '/fr/'
+    else:
+        return '/'  # Default to main home
+
 # Función para encontrar la URL más parecida con jerarquía
 def match_urls_with_hierarchy(old_url, new_urls):
     try:
@@ -39,9 +50,9 @@ def match_urls_with_hierarchy(old_url, new_urls):
         if sorted_urls and sorted_urls[0][3] > 0.5:  # Similitud mínima requerida
             return sorted_urls[0][0]
         else:
-            return "NO_REDIRECTION"
+            return None  # No significant match
     except Exception:
-        return "NO_REDIRECTION"
+        return None
 
 # Interfaz de la aplicación
 st.title("Herramienta de Redirecciones Automáticas")
@@ -63,9 +74,15 @@ if uploaded_file is not None:
         df["New URLs"] = df["New URLs"].apply(get_relative_url)
 
         # Procesar las redirecciones
-        df["Redirección"] = df["Old URLs"].apply(
-            lambda old_url: match_urls_with_hierarchy(old_url, df["New URLs"].tolist())
-        )
+        def process_redirection(old_url):
+            best_match = match_urls_with_hierarchy(old_url, df["New URLs"].tolist())
+            if best_match:
+                return best_match
+            else:
+                # Si no hay coincidencia, asignar según el idioma detectado
+                return detect_language(old_url)
+
+        df["Redirección"] = df["Old URLs"].apply(process_redirection)
 
         # Mostrar el resultado
         st.dataframe(df)
