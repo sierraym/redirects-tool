@@ -21,23 +21,6 @@ def extract_tokens(url):
     tokens = re.split(r'[\/\-_]', url)
     return [token for token in tokens if token]  # Eliminar tokens vacíos
 
-# Detectar idioma en la URL antigua
-def detect_language(url):
-    if '/en/' in url:
-        return '/en/'
-    elif '/de/' in url:
-        return '/de/'
-    elif '/fr/' in url:
-        return '/fr/'
-    else:
-        return '/'  # Default to main home
-
-# Asegurar que todas las URLs terminen con /
-def normalize_url(url):
-    if not url.endswith('/'):
-        return url + '/'
-    return url
-
 # Función mejorada para encontrar la URL más parecida con jerarquía y tokens específicos
 def match_urls_with_hierarchy_and_tokens(old_url, new_urls):
     try:
@@ -63,50 +46,7 @@ def match_urls_with_hierarchy_and_tokens(old_url, new_urls):
     except Exception:
         return None
 
-# Procesar las redirecciones con un fallback inteligente
-def process_redirection_with_fallback(old_url):
-    best_match = match_urls_with_hierarchy_and_tokens(old_url, df["New URLs"].tolist())
-    if best_match:
-        return best_match, detect_language(best_match)
-    else:
-        language = detect_language(old_url)
-        fallback = process_fallback_redirection(old_url, language)
-        return fallback if fallback else language, 'Idioma principal'
-
-# Procesar fallback de redirección
-def process_fallback_redirection(old_url, language):
-    fallback_matches = [
-        new_url for new_url in df["New URLs"]
-        if language in new_url and any(token in new_url for token in extract_tokens(old_url))
-    ]
-    if fallback_matches:
-        fallback_matches = sorted(
-            fallback_matches,
-            key=lambda x: SequenceMatcher(None, old_url, x).ratio(),
-            reverse=True
-        )
-        return fallback_matches[0]
-    else:
-        return None
-
-# Función para redirigir habitaciones al idioma correspondiente
-def match_room_urls(old_url, new_urls):
-    language = detect_language(old_url)
-    room_keywords = {
-        '/': 'habitacion',
-        '/en/': 'room',
-        '/fr/': 'chambre',
-        '/de/': 'zimmer'
-    }
-    keyword = room_keywords.get(language, 'habitacion')
-    
-    matches = [url for url in new_urls if keyword in url and language in url]
-    if matches:
-        return sorted(matches, key=lambda x: SequenceMatcher(None, old_url, x).ratio(), reverse=True)[0]
-    else:
-        return None
-
-# Interfaz de la aplicación
+# Interfaz de la aplicación Streamlit
 st.title("Herramienta de Redirecciones Automáticas")
 st.write("Sube un archivo Excel con columnas 'Old URLs' y 'New URLs'. La herramienta generará un archivo con las redirecciones.")
 
@@ -120,29 +60,28 @@ if uploaded_file is not None:
 
         # Asegurarse de que todas las celdas sean texto y normalizar las URLs
         df = df.astype(str)
-        df.fillna('', inplace=True)
-        df["Old URLs"] = df["Old URLs"].apply(lambda x: normalize_url(get_relative_url(x)))
-        df["New URLs"] = df["New URLs"].apply(lambda x: normalize_url(get_relative_url(x)))
+        df['Old URLs'] = df['Old URLs'].apply(get_relative_url)
+        df['New URLs'] = df['New URLs'].apply(get_relative_url)
 
-        # Procesar las redirecciones
-        df["Redirección"], df["Idioma de Redirección"] = zip(*df["Old URLs"].apply(process_redirection_with_fallback))
+        # Aplicar la función para encontrar la mejor redirección para cada URL antigua
+        df['Redirection'] = df['Old URLs'].apply(lambda old_url: match_urls_with_hierarchy_and_tokens(old_url, df['New URLs'].tolist()))
 
-        # Procesar las redirecciones de habitaciones
-        df["Redirección Habitaciones"] = df["Old URLs"].apply(lambda x: match_room_urls(x, df["New URLs"].tolist()) if 'habitacion' in x or 'room' in x or 'chambre' in x or 'zimmer' in x else None)
+        # Eliminar filas con resultados inválidos o sin coincidencia significativa
+        df_cleaned = df[df['Redirection'].notna() & (df['Redirection'] != "INVALID_URL")]
 
         # Mostrar el resultado
-        st.dataframe(df)
+        st.dataframe(df_cleaned)
 
         # Permitir descarga del archivo procesado
         output = BytesIO()
         writer = pd.ExcelWriter(output, engine='xlsxwriter')
-        df.to_excel(writer, index=False, sheet_name='Redirecciones')
+        df_cleaned.to_excel(writer, index=False, sheet_name='Redirections')
         writer.close()
         processed_data = output.getvalue()
         st.download_button(
             label="Descargar Archivo con Redirecciones",
             data=processed_data,
-            file_name="Redirecciones_Relativas.xlsx",
+            file_name="Redirections_Clean.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     except Exception as e:
