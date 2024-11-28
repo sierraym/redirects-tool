@@ -8,82 +8,63 @@ import re
 # Función para obtener las URLs relativas y normalizarlas
 def get_relative_url(url):
     try:
-        path = urlparse(str(url)).path.lower().rstrip('/')
-        return path if path else "INVALID_URL"
+        path = urlparse(url).path.lower().rstrip('/')
+        return path
     except Exception:
-        return "INVALID_URL"
+        return None
 
 # Función para extraer tokens de una URL
 def extract_tokens(url):
     if not url:
         return []
+    # Eliminar la extensión y dividir por '/', '-', '_'
     url = re.sub(r'\.\w+$', '', url)  # Eliminar la extensión (.html, .php, etc.)
     tokens = re.split(r'[\/\-_]', url)
-    return [token for token in tokens if token]  # Eliminar tokens vacíos
+    tokens = [token for token in tokens if token]  # Eliminar tokens vacíos
+    return tokens
 
-# Detectar idioma en la URL antigua
-def detect_language(url):
-    if '/en/' in url:
-        return '/en/'
-    elif '/de/' in url:
-        return '/de/'
-    elif '/fr/' in url:
-        return '/fr/'
-    else:
-        return '/'  # Default to main home
-
-# Función mejorada para encontrar la URL más parecida con jerarquía y tokens específicos
-def match_urls_with_hierarchy_and_tokens(old_url, new_urls):
+# Función mejorada para encontrar la URL más parecida
+def match_urls_improved(old_url, new_urls):
     try:
-        old_tokens = extract_tokens(old_url)
-        hierarchy_score = []
+        cleaned_new_urls = [str(url).lower().rstrip('/') for url in new_urls if pd.notnull(url)]
+        if not cleaned_new_urls:
+            return "/"
 
-        for new_url in new_urls:
-            new_tokens = extract_tokens(new_url)
-            # Verificar coincidencias exactas de tokens
-            shared_tokens = len(set(old_tokens).intersection(new_tokens))
-            shared_hierarchy = sum(1 for a, b in zip(old_tokens, new_tokens) if a == b)
-            similarity = SequenceMatcher(None, old_url, new_url).ratio()
-            hierarchy_score.append((new_url, shared_hierarchy, shared_tokens, similarity))
+        # Extraer tokens de la old_url
+        old_tokens = set(extract_tokens(old_url))
 
-        # Ordenar por jerarquía > tokens compartidos > similitud
-        sorted_urls = sorted(hierarchy_score, key=lambda x: (x[1], x[2], x[3]), reverse=True)
+        # Crear una lista con la cantidad de tokens compartidos
+        matches = []
+        for new_url in cleaned_new_urls:
+            new_tokens = set(extract_tokens(new_url))
+            shared_tokens = old_tokens.intersection(new_tokens)
+            matches.append((new_url, len(shared_tokens)))
 
-        # Si hay coincidencias significativas, devolver la mejor
-        if sorted_urls and (sorted_urls[0][1] > 0 or sorted_urls[0][2] > 0):
-            return sorted_urls[0][0]
+        # Filtrar las URLs que comparten al menos un token
+        token_matches = [match for match in matches if match[1] > 0]
+
+        if token_matches:
+            # Ordenar por la cantidad de tokens compartidos y luego por similitud
+            token_matches_sorted = sorted(token_matches, key=lambda x: x[1], reverse=True)
+            top_matches = [match[0] for match in token_matches_sorted if match[1] == token_matches_sorted[0][1]]
+            
+            # Si hay múltiples top matches, usar SequenceMatcher para elegir el mejor
+            if len(top_matches) > 1:
+                similarities = [(url, SequenceMatcher(None, old_url, url).ratio()) for url in top_matches]
+                best_match = max(similarities, key=lambda x: x[1])
+                return best_match[0]
+            else:
+                return token_matches_sorted[0][0]
         else:
-            return None  # No significant match
+            # Si no hay coincidencias de tokens, usar similitud general
+            similarities = [(new_url, SequenceMatcher(None, old_url, new_url).ratio()) for new_url in cleaned_new_urls]
+            best_match = max(similarities, key=lambda x: x[1])
+            return best_match[0]
     except Exception:
-        return None
-
-# Procesar las redirecciones con un fallback inteligente
-def process_redirection(old_url):
-    # Intentar encontrar la mejor coincidencia
-    best_match = match_urls_with_hierarchy_and_tokens(old_url, df["New URLs"].tolist())
-    if best_match:
-        return best_match
-    else:
-        # Fallback: buscar una URL dentro del idioma con al menos un token compartido
-        language = detect_language(old_url)
-        fallback_matches = [
-            new_url for new_url in df["New URLs"]
-            if language in new_url and any(token in new_url for token in extract_tokens(old_url))
-        ]
-        if fallback_matches:
-            # Si hay múltiples opciones, usar la similitud para elegir la mejor
-            fallback_matches = sorted(
-                fallback_matches,
-                key=lambda x: SequenceMatcher(None, old_url, x).ratio(),
-                reverse=True
-            )
-            return fallback_matches[0]
-        else:
-            # Si no hay ninguna coincidencia dentro del idioma, redirigir a la home del idioma
-            return language
+        return "/"
 
 # Interfaz de la aplicación
-st.title("Herramienta de Redirecciones Automáticas")
+st.title("Herramienta de Redirecciones Automáticas Mejorada")
 st.write("Sube un archivo Excel con columnas 'Old URLs' y 'New URLs'. La herramienta generará un archivo con las redirecciones.")
 
 # Subir archivo Excel
@@ -94,30 +75,37 @@ if uploaded_file is not None:
         # Leer el archivo como Excel
         df = pd.read_excel(uploaded_file)
 
-        # Asegurarse de que todas las celdas sean texto
-        df = df.astype(str)
+        # Verificar si las columnas necesarias están presentes
+        if "Old URLs" not in df.columns or "New URLs" not in df.columns:
+            st.error("El archivo debe contener columnas llamadas 'Old URLs' y 'New URLs'.")
+        else:
+            # Filtrar filas donde 'Old URLs' tenga datos
+            df = df.dropna(subset=["Old URLs"])
 
-        # Normalizar las URLs
-        df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
-        df["New URLs"] = df["New URLs"].apply(get_relative_url)
+            # Convertir las URLs a relativas y normalizarlas
+            df["Old URLs"] = df["Old URLs"].apply(get_relative_url)
+            df["New URLs"] = df["New URLs"].apply(get_relative_url)
 
-        # Procesar las redirecciones
-        df["Redirección"] = df["Old URLs"].apply(process_redirection)
+            # Procesar las redirecciones utilizando la función mejorada
+            st.write("Procesando las redirecciones...")
+            df["Redirección"] = df["Old URLs"].apply(
+                lambda old_url: match_urls_improved(old_url, df["New URLs"].tolist())
+            )
 
-        # Mostrar el resultado
-        st.dataframe(df)
+            # Mostrar el resultado
+            st.dataframe(df)
 
-        # Permitir descarga del archivo procesado
-        output = BytesIO()
-        writer = pd.ExcelWriter(output, engine='xlsxwriter')
-        df.to_excel(writer, index=False, sheet_name='Redirecciones')
-        writer.close()
-        processed_data = output.getvalue()
-        st.download_button(
-            label="Descargar Archivo con Redirecciones",
-            data=processed_data,
-            file_name="Redirecciones_Relativas.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+            # Permitir descarga del archivo procesado
+            output = BytesIO()
+            writer = pd.ExcelWriter(output, engine='xlsxwriter')
+            df.to_excel(writer, index=False, sheet_name='Redirecciones')
+            writer.close()
+            processed_data = output.getvalue()
+            st.download_button(
+                label="Descargar Archivo con Redirecciones",
+                data=processed_data,
+                file_name="Redirecciones_Relativas.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
     except Exception as e:
         st.error(f"Ocurrió un error al procesar el archivo: {str(e)}")
