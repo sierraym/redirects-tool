@@ -9,7 +9,7 @@ import re
 def get_relative_url(url):
     try:
         path = urlparse(str(url)).path.lower().rstrip('/')
-        return path if path else "INVALID_URL"
+        return path + '/' if path else "INVALID_URL"
     except Exception:
         return "INVALID_URL"
 
