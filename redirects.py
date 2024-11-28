@@ -9,7 +9,7 @@ import re
 def get_relative_url(url):
     try:
         path = urlparse(str(url)).path.lower().rstrip('/')
-        return path + '/' if path else "INVALID_URL"
+        return path if path else "INVALID_URL"
     except Exception:
         return "INVALID_URL"
 
@@ -79,14 +79,6 @@ def process_redirection(old_url):
             )
             return fallback_matches[0]
         else:
-            # Si no hay ninguna coincidencia dentro del idioma, buscar la mejor URL que no sea home
-            non_home_matches = [new_url for new_url in df["New URLs"] if new_url != '/']
-            if non_home_matches:
-                return sorted(
-                    non_home_matches,
-                    key=lambda x: SequenceMatcher(None, old_url, x).ratio(),
-                    reverse=True
-                )[0]
             # Si no hay ninguna coincidencia dentro del idioma, redirigir a la home del idioma
             return language
 
